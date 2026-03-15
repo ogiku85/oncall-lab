@@ -210,3 +210,87 @@ The goal is to become the engineer who can say:
 > "The alert is real. The issue started in `inventory-api`. It is causing elevated 502s in `order-api`. User impact is limited to the order endpoint. The immediate mitigation is to disable chaos or roll back the bad change."
 
 That is on-call thinking.
+
+# OnCall Lab
+
+Local observability practice lab for backend on-call training.
+
+## Stack
+- Grafana
+- Prometheus
+- Loki + Promtail
+- Tempo
+- OpenTelemetry Collector
+- `order-api` (.NET 8)
+- `inventory-api` (.NET 8)
+
+## Start
+```bash
+docker compose up --build
+```
+
+Grafana: `http://localhost:3000`  
+Prometheus: `http://localhost:9090`  
+Order API: `http://localhost:8080/health`  
+Inventory API: `http://localhost:8081/health`
+
+Grafana login:
+- user: `admin`
+- password: `admin`
+
+## Generate traffic
+Steady 5-minute traffic:
+```bash
+./traffic/steady-traffic.sh
+```
+
+Burst traffic:
+```bash
+./traffic/generate-traffic.sh
+```
+
+Infinite traffic:
+```bash
+./traffic/infinite-traffic.sh
+```
+
+k6 load test:
+```bash
+brew install k6
+./traffic/run-k6.sh
+```
+
+## Trigger incidents
+Slow downstream:
+```bash
+./incidents/slow-dependency.sh
+```
+
+Hard downstream failure:
+```bash
+./incidents/dependency-failure.sh
+```
+
+Flaky downstream failure:
+```bash
+./incidents/flaky-dependency.sh
+```
+
+Order API failure:
+```bash
+./incidents/order-api-failure.sh
+```
+
+Reset chaos:
+```bash
+./incidents/reset-chaos.sh
+```
+
+## Suggested drill flow
+1. Start the stack.
+2. Run `./traffic/steady-traffic.sh`.
+3. Open Grafana dashboard `OnCall Overview`.
+4. Trigger `./incidents/slow-dependency.sh`.
+5. Investigate metrics, logs, and traces.
+6. Reset with `./incidents/reset-chaos.sh`.
+7. Trigger `./incidents/dependency-failure.sh` and repeat.
