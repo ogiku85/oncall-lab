@@ -1,0 +1,115 @@
+services:
+  grafana:
+    image: grafana/grafana:11.6.0
+    container_name: oncall-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+
+  prometheus:
+    image: prom/prometheus:v3.2.1
+    container_name: oncall-prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--web.enable-remote-write-receiver"
+      - "--enable-feature=exemplar-storage"
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - otel-collector
+
+  loki:
+    image: grafana/loki:3.4.2
+    container_name: oncall-loki
+    command: ["-config.file=/etc/loki/config.yml"]
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki/config.yml:/etc/loki/config.yml:ro
+
+  promtail:
+    image: grafana/promtail:3.4.2
+    container_name: oncall-promtail
+    command: ["-config.file=/etc/promtail/config.yml"]
+    volumes:
+      - ./promtail/config.yml:/etc/promtail/config.yml:ro
+      - ./logs:/var/log/oncall:ro
+    depends_on:
+      - loki
+
+  tempo:
+    image: grafana/tempo:2.8.2
+    container_name: oncall-tempo
+    command: ["-config.file=/etc/tempo/config.yml"]
+    ports:
+      - "3200:3200"
+    volumes:
+      - ./tempo/config.yml:/etc/tempo/config.yml:ro
+      - ./tempo/data:/tmp/tempo
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.121.0
+    container_name: oncall-otel-collector
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "8889:8889"
+    volumes:
+      - ./otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    depends_on:
+      - tempo
+
+  inventory-api:
+    build:
+      context: ./apps/inventory-api
+    container_name: oncall-inventory-api
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      SERVICE_NAME: inventory-api
+      LOG_FILE_PATH: /app/logs/inventory-api.log
+      CHAOS_FAIL_RATE: 0.0
+      CHAOS_DELAY_MS: 0
+      CHAOS_MODE: off
+    volumes:
+      - ./logs:/app/logs
+    ports:
+      - "8081:8080"
+    depends_on:
+      - otel-collector
+
+  order-api:
+    build:
+      context: ./apps/order-api
+    container_name: oncall-order-api
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      SERVICE_NAME: order-api
+      INVENTORY_API_BASE_URL: http://inventory-api:8080
+      LOG_FILE_PATH: /app/logs/order-api.log
+      CHAOS_FAIL_RATE: 0.0
+      CHAOS_DELAY_MS: 0
+      CHAOS_MODE: off
+    volumes:
+      - ./logs:/app/logs
+    ports:
+      - "8080:8080"
+    depends_on:
+      - inventory-api
+
